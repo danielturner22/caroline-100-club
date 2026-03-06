@@ -19,7 +19,10 @@ def get_google_sheet():
     # This pulls your secret key from Streamlit's secure vault
     credentials = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
-        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
     )
     client = gspread.authorize(credentials)
     # Make sure this matches your Google Sheet name exactly!
