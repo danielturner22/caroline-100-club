@@ -190,9 +190,15 @@ else:
         
         fig_heatmap.update_layout(
             xaxis=dict(range=[-25, 25], visible=False),
-            yaxis=dict(range=[0, 22], visible=False),
+            yaxis=dict(
+                range=[-2, 25], 
+                visible=False, 
+                scaleanchor="x",    # Locks the Y-axis to the X-axis
+                scaleratio=1        # Keeps the proportions exactly 1:1
+            ),
+            height=450,             # Prevents the chart from getting too tall
             plot_bgcolor=BACKGROUND, coloraxis_showscale=True,
-            margin=dict(l=0, r=0, t=10, b=10)
+            margin=dict(l=0, r=0, t=20, b=10)
         )
         
         # Draw the virtual court lines
