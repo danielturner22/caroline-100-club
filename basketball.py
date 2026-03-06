@@ -131,7 +131,7 @@ else:
 
     st.markdown("---")
 
-    # --- FEATURE 4: TROPHY ROOM (PERSONAL BESTS) ---
+    # --- TROPHY ROOM (PERSONAL BESTS) ---
     st.markdown(f"<h3 style='color: {NAVY}; text-align: center;'>🏆 Trophy Room: Personal Bests</h3>", unsafe_allow_html=True)
     col_pb1, col_pb2 = st.columns(2)
     
@@ -162,22 +162,22 @@ else:
         st.plotly_chart(fig_gauge, use_container_width=True)
 
     with col_chart2:
-        # --- FEATURE 5: VISUAL COURT HEATMAP ---
+        # --- VISUAL COURT HEATMAP ---
         st.markdown(f"<h3 style='color: {NAVY}; text-align: center;'>Shooting Heatmap</h3>", unsafe_allow_html=True)
         spots = ['Left Corner', 'Left Elbow', 'Right Elbow', 'Right Corner', 'Free Throws']
         makes = [df['Left_Corner'].sum(), df['Left_Elbow'].sum(), df['Right_Elbow'].sum(), df['Right_Corner'].sum(), df['Free_Throws'].sum()]
         attempts = [days_completed * 5] * 4 + [days_completed * 10]
         percentages = [(m / a * 100) if a > 0 else 0 for m, a in zip(makes, attempts)]
         
-        # Coordinates for plotting on our virtual half-court
+        # Coordinates using true High School basketball court proportions
         court_data = pd.DataFrame({
             'Spot': spots,
-            'X': [-20, -8, 8, 20, 0],
-            'Y': [5, 15, 15, 5, 15],
+            'X': [-16, -6, 6, 16, 0],
+            'Y': [5, 19, 19, 5, 19],
             'Percentage': percentages,
             'Makes': makes,
             'Attempts': attempts,
-            'MarkerSize': [45, 45, 45, 45, 45] # Keep dot size consistent
+            'MarkerSize': [45, 45, 45, 45, 45]
         })
         
         fig_heatmap = px.scatter(
@@ -189,27 +189,27 @@ else:
         fig_heatmap.update_traces(textposition='top center', textfont=dict(color=NAVY, size=14, family="Arial Black"))
         
         fig_heatmap.update_layout(
-            xaxis=dict(range=[-25, 25], visible=False),
+            xaxis=dict(range=[-22, 22], visible=False),
             yaxis=dict(
-                range=[-2, 25], 
+                range=[-2, 28], 
                 visible=False, 
-                scaleanchor="x",    # Locks the Y-axis to the X-axis
-                scaleratio=1        # Keeps the proportions exactly 1:1
+                scaleanchor="x",    
+                scaleratio=1        
             ),
-            height=450,             # Prevents the chart from getting too tall
+            height=450,
             plot_bgcolor=BACKGROUND, coloraxis_showscale=True,
             margin=dict(l=0, r=0, t=20, b=10)
         )
         
-        # Draw the virtual court lines
-        fig_heatmap.add_shape(type="rect", x0=-8, y0=0, x1=8, y1=15, line=dict(color=NAVY, width=2), fillcolor="rgba(11, 34, 64, 0.05)") # Paint
-        fig_heatmap.add_shape(type="circle", x0=-6, y0=9, x1=6, y1=21, line=dict(color=NAVY, width=2)) # Top of Key
-        fig_heatmap.add_shape(type="circle", x0=-1, y0=3.5, x1=1, y1=5.5, line=dict(color=GOLD, width=3)) # Hoop
-        fig_heatmap.add_shape(type="rect", x0=-3, y0=3.5, x1=3, y1=3.5, line=dict(color=NAVY, width=4)) # Backboard
+        # Draw the virtual court lines with real dimensions
+        fig_heatmap.add_shape(type="rect", x0=-6, y0=0, x1=6, y1=19, line=dict(color=NAVY, width=2), fillcolor="rgba(11, 34, 64, 0.05)") 
+        fig_heatmap.add_shape(type="circle", x0=-6, y0=13, x1=6, y1=25, line=dict(color=NAVY, width=2)) 
+        fig_heatmap.add_shape(type="circle", x0=-0.75, y0=4, x1=0.75, y1=5.5, line=dict(color=GOLD, width=3)) 
+        fig_heatmap.add_shape(type="line", x0=-3, y0=4, x1=3, y1=4, line=dict(color=NAVY, width=4)) 
         
         st.plotly_chart(fig_heatmap, use_container_width=True)
 
-    # --- FEATURE 3: TREND WITH 7-DAY MOVING AVERAGE ---
+    # --- TREND WITH 7-DAY MOVING AVERAGE ---
     st.markdown(f"<h3 style='color: {NAVY}; text-align: center;'>Daily Shooting Trend & Averages</h3>", unsafe_allow_html=True)
     df['Court_Pct'] = (df['Court_Makes'] / 20) * 100
     df['FT_Pct'] = (df['FT_Makes'] / 10) * 100
@@ -217,21 +217,23 @@ else:
     df_chart = df[['Date', 'Court_Pct', 'FT_Pct']].copy()
     df_chart.rename(columns={'Court_Pct': 'Daily Court Shots', 'FT_Pct': 'Free Throws'}, inplace=True)
     
-    # Calculate the Moving Average
+    # Format the dates strictly to "Mon Day" (e.g., "Mar 1")
+    df_chart['Display Date'] = df_chart['Date'].dt.strftime('%b ') + df_chart['Date'].dt.day.astype(str)
+    
     df_chart['7-Day Avg (Court)'] = df_chart['Daily Court Shots'].rolling(window=7, min_periods=1).mean()
     
     fig_line = px.line(
-        df_chart, x='Date', y=['Daily Court Shots', '7-Day Avg (Court)', 'Free Throws'], 
+        df_chart, x='Display Date', y=['Daily Court Shots', '7-Day Avg (Court)', 'Free Throws'], 
         markers=True, 
-        labels={'value': 'Shooting %', 'Date': 'Workout Date', 'variable': 'Metric'},
+        labels={'value': 'Shooting %', 'Display Date': 'Workout Date', 'variable': 'Metric'},
         color_discrete_map={
-            'Daily Court Shots': 'rgba(11, 34, 64, 0.3)', # Made slightly faded so the average pops
+            'Daily Court Shots': 'rgba(11, 34, 64, 0.3)', 
             '7-Day Avg (Court)': NAVY, 
             'Free Throws': GOLD
         }
     )
     
-    # Force X-axis to sort chronologically and visually clearly
-    fig_line.update_xaxes(type='category', categoryorder='category ascending')
+    # Force X-axis to sort chronologically using our custom formatted list
+    fig_line.update_xaxes(type='category', categoryorder='array', categoryarray=df_chart['Display Date'])
     fig_line.update_layout(yaxis_range=[0, 100], plot_bgcolor=BACKGROUND, legend_title_text='')
     st.plotly_chart(fig_line, use_container_width=True)
