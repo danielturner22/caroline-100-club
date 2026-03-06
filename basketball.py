@@ -2,23 +2,35 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import os
 from datetime import date
+import gspread
+from google.oauth2.service_account import Credentials
 
 # --- CONFIG & COLORS ---
 st.set_page_config(page_title="Caroline's 100 Club Tracker", layout="wide")
 
-# Teays Valley Vikings Colors
 NAVY = "#0B2240"
 GOLD = "#B9975B"
 BACKGROUND = "#F4F6F9"
 
-# --- DATA MANAGEMENT ---
-DATA_FILE = "caroline_100_club_data.csv"
+# --- GOOGLE SHEETS SETUP ---
+@st.cache_resource
+def get_google_sheet():
+    # This pulls your secret key from Streamlit's secure vault
+    credentials = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    )
+    client = gspread.authorize(credentials)
+    # Make sure this matches your Google Sheet name exactly!
+    return client.open("Caroline 100 Club").sheet1 
+
+sheet = get_google_sheet()
 
 def load_data():
-    if os.path.exists(DATA_FILE):
-        return pd.read_csv(DATA_FILE)
+    records = sheet.get_all_records()
+    if records:
+        return pd.DataFrame(records)
     else:
         columns = [
             "Date", "Handling_Done", "Drives_Done", "Spin_Done", 
@@ -26,13 +38,9 @@ def load_data():
         ]
         return pd.DataFrame(columns=columns)
 
-def save_data(df):
-    df.to_csv(DATA_FILE, index=False)
-
 df = load_data()
 
 # --- SESSION STATE FOR ANIMATIONS ---
-# This ensures the balloons only fire once right after you hit save on a milestone day
 if 'show_balloons' not in st.session_state:
     st.session_state.show_balloons = False
 
@@ -77,21 +85,21 @@ with st.sidebar.form("daily_entry_form", clear_on_submit=True):
     if submit:
         days_before_save = len(df)
         
-        new_data = pd.DataFrame([{
-            "Date": entry_date, "Handling_Done": handling, "Drives_Done": drives, "Spin_Done": spin,
-            "Left_Corner": left_corner, "Left_Elbow": left_elbow, 
-            "Right_Elbow": right_elbow, "Right_Corner": right_corner, "Free_Throws": free_throws
-        }])
-        df = pd.concat([df, new_data], ignore_index=True)
-        df = df.drop_duplicates(subset=['Date'], keep='last')
-        save_data(df)
+        # Format the data for Google Sheets
+        row_to_insert = [
+            str(entry_date), bool(handling), bool(drives), bool(spin),
+            int(left_corner), int(left_elbow), int(right_elbow), int(right_corner), int(free_throws)
+        ]
+        
+        # Append directly to Google Sheet
+        sheet.append_row(row_to_insert)
         
         # Check for Milestones! 
-        days_after_save = len(df)
-        if days_after_save in [25, 50, 75, 100] and days_after_save > days_before_save:
+        days_after_save = days_before_save + 1
+        if days_after_save in [25, 50, 75, 100]:
             st.session_state.show_balloons = True
             
-        st.success("Workout logged successfully!")
+        st.success("Workout saved securely to Google Sheets!")
         st.rerun()
 
 # --- MAIN DASHBOARD ---
@@ -112,7 +120,7 @@ else:
     total_ft_attempts = days_completed * 10
     ft_pct = (total_ft_makes / total_ft_attempts) * 100 if total_ft_attempts > 0 else 0
 
-    # Top Row Metrics (Now split into 5 columns for better detail)
+    # Top Row Metrics
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Days Completed", f"{days_completed} / 100")
     col2.metric("Court Makes", f"{total_court_makes} / {total_court_attempts}")
@@ -126,7 +134,6 @@ else:
     col_chart1, col_chart2 = st.columns(2)
 
     with col_chart1:
-        # Progress to 100 Days Gauge
         st.markdown(f"<h3 style='color: {NAVY}; text-align: center;'>Journey to 100 Days</h3>", unsafe_allow_html=True)
         fig_gauge = go.Figure(go.Indicator(
             mode = "gauge+number",
@@ -143,9 +150,7 @@ else:
         st.plotly_chart(fig_gauge, use_container_width=True)
 
     with col_chart2:
-        # Shooting percentages by zone (including FTs)
         st.markdown(f"<h3 style='color: {NAVY}; text-align: center;'>Accuracy by Location</h3>", unsafe_allow_html=True)
-        
         spots = ['Left Corner', 'Left Elbow', 'Right Elbow', 'Right Corner', 'Free Throws']
         makes = [
             df['Left_Corner'].sum(), df['Left_Elbow'].sum(), 
@@ -154,33 +159,16 @@ else:
         attempts = [days_completed * 5, days_completed * 5, days_completed * 5, days_completed * 5, days_completed * 10]
         percentages = [(m / a * 100) if a > 0 else 0 for m, a in zip(makes, attempts)]
         
-        fig_bar = px.bar(
-            x=spots, y=percentages, 
-            labels={'x': 'Location', 'y': 'Shooting Percentage (%)'},
-            color_discrete_sequence=[GOLD]
-        )
+        fig_bar = px.bar(x=spots, y=percentages, labels={'x': 'Location', 'y': 'Shooting Percentage (%)'}, color_discrete_sequence=[GOLD])
         fig_bar.update_layout(yaxis_range=[0, 100], plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_bar, use_container_width=True)
 
-    # Trend over time (Now showing two lines!)
     st.markdown(f"<h3 style='color: {NAVY}; text-align: center;'>Daily Shooting Trend</h3>", unsafe_allow_html=True)
-    
     df['Court_Pct'] = (df['Court_Makes'] / 20) * 100
     df['FT_Pct'] = (df['FT_Makes'] / 10) * 100
-    
-    # Prep data for the multi-line chart
     df_chart = df[['Date', 'Court_Pct', 'FT_Pct']].copy()
     df_chart.rename(columns={'Court_Pct': 'Court Shots', 'FT_Pct': 'Free Throws'}, inplace=True)
     
-    fig_line = px.line(
-        df_chart, x='Date', y=['Court Shots', 'Free Throws'], 
-        markers=True, 
-        labels={'value': 'Shooting %', 'Date': 'Date', 'variable': 'Shot Type'},
-        color_discrete_map={'Court Shots': NAVY, 'Free Throws': GOLD}
-    )
+    fig_line = px.line(df_chart, x='Date', y=['Court Shots', 'Free Throws'], markers=True, labels={'value': 'Shooting %', 'Date': 'Date', 'variable': 'Shot Type'}, color_discrete_map={'Court Shots': NAVY, 'Free Throws': GOLD})
     fig_line.update_layout(yaxis_range=[0, 100], plot_bgcolor=BACKGROUND, legend_title_text='')
     st.plotly_chart(fig_line, use_container_width=True)
-
-    # Show raw data
-    with st.expander("View Raw Data Log"):
-        st.dataframe(df)
