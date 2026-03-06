@@ -16,7 +16,6 @@ BACKGROUND = "#F4F6F9"
 # --- GOOGLE SHEETS SETUP ---
 @st.cache_resource
 def get_google_sheet():
-    # This pulls your secret key from Streamlit's secure vault
     credentials = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
         scopes=[
@@ -25,7 +24,6 @@ def get_google_sheet():
         ]
     )
     client = gspread.authorize(credentials)
-    # Make sure this matches your Google Sheet name exactly!
     return client.open("Caroline 100 Club").sheet1 
 
 sheet = get_google_sheet()
@@ -88,16 +86,13 @@ with st.sidebar.form("daily_entry_form", clear_on_submit=True):
     if submit:
         days_before_save = len(df)
         
-        # Format the data for Google Sheets
         row_to_insert = [
             str(entry_date), bool(handling), bool(drives), bool(spin),
             int(left_corner), int(left_elbow), int(right_elbow), int(right_corner), int(free_throws)
         ]
         
-        # Append directly to Google Sheet
         sheet.append_row(row_to_insert)
         
-        # Check for Milestones! 
         days_after_save = days_before_save + 1
         if days_after_save in [25, 50, 75, 100]:
             st.session_state.show_balloons = True
@@ -109,9 +104,12 @@ with st.sidebar.form("daily_entry_form", clear_on_submit=True):
 if df.empty:
     st.info("👈 No data yet! Log Caroline's first workout in the sidebar to see the dashboard.")
 else:
+    # 1. CLEAN & SORT DATES (Oldest to Newest)
+    df['Date'] = pd.to_datetime(df['Date'])
+    df = df.sort_values(by='Date').reset_index(drop=True)
     days_completed = len(df)
     
-    # Calculate Separate Totals
+    # Calculate Totals
     df['Court_Makes'] = df['Left_Corner'] + df['Left_Elbow'] + df['Right_Elbow'] + df['Right_Corner']
     df['FT_Makes'] = df['Free_Throws']
     
@@ -133,7 +131,19 @@ else:
 
     st.markdown("---")
 
-    # Visuals
+    # --- FEATURE 4: TROPHY ROOM (PERSONAL BESTS) ---
+    st.markdown(f"<h3 style='color: {NAVY}; text-align: center;'>🏆 Trophy Room: Personal Bests</h3>", unsafe_allow_html=True)
+    col_pb1, col_pb2 = st.columns(2)
+    
+    best_court = df.loc[df['Court_Makes'].idxmax()]
+    col_pb1.success(f"**🔥 Most Court Shots Made:** {best_court['Court_Makes']} / 20  *(Set on {best_court['Date'].strftime('%b %d')})*")
+    
+    best_ft = df.loc[df['Free_Throws'].idxmax()]
+    col_pb2.success(f"**🎯 Best Free Throw Day:** {best_ft['Free_Throws']} / 10  *(Set on {best_ft['Date'].strftime('%b %d')})*")
+    
+    st.markdown("---")
+
+    # Visuals Row
     col_chart1, col_chart2 = st.columns(2)
 
     with col_chart1:
@@ -142,7 +152,6 @@ else:
             mode = "gauge+number",
             value = days_completed,
             domain = {'x': [0, 1], 'y': [0, 1]},
-            title = {'text': "Days Completed"},
             gauge = {
                 'axis': {'range': [None, 100]},
                 'bar': {'color': NAVY},
@@ -153,25 +162,70 @@ else:
         st.plotly_chart(fig_gauge, use_container_width=True)
 
     with col_chart2:
-        st.markdown(f"<h3 style='color: {NAVY}; text-align: center;'>Accuracy by Location</h3>", unsafe_allow_html=True)
+        # --- FEATURE 5: VISUAL COURT HEATMAP ---
+        st.markdown(f"<h3 style='color: {NAVY}; text-align: center;'>Shooting Heatmap</h3>", unsafe_allow_html=True)
         spots = ['Left Corner', 'Left Elbow', 'Right Elbow', 'Right Corner', 'Free Throws']
-        makes = [
-            df['Left_Corner'].sum(), df['Left_Elbow'].sum(), 
-            df['Right_Elbow'].sum(), df['Right_Corner'].sum(), df['Free_Throws'].sum()
-        ]
-        attempts = [days_completed * 5, days_completed * 5, days_completed * 5, days_completed * 5, days_completed * 10]
+        makes = [df['Left_Corner'].sum(), df['Left_Elbow'].sum(), df['Right_Elbow'].sum(), df['Right_Corner'].sum(), df['Free_Throws'].sum()]
+        attempts = [days_completed * 5] * 4 + [days_completed * 10]
         percentages = [(m / a * 100) if a > 0 else 0 for m, a in zip(makes, attempts)]
         
-        fig_bar = px.bar(x=spots, y=percentages, labels={'x': 'Location', 'y': 'Shooting Percentage (%)'}, color_discrete_sequence=[GOLD])
-        fig_bar.update_layout(yaxis_range=[0, 100], plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_bar, use_container_width=True)
+        # Coordinates for plotting on our virtual half-court
+        court_data = pd.DataFrame({
+            'Spot': spots,
+            'X': [-20, -8, 8, 20, 0],
+            'Y': [5, 15, 15, 5, 15],
+            'Percentage': percentages,
+            'Makes': makes,
+            'Attempts': attempts,
+            'MarkerSize': [45, 45, 45, 45, 45] # Keep dot size consistent
+        })
+        
+        fig_heatmap = px.scatter(
+            court_data, x='X', y='Y', size='MarkerSize', color='Percentage',
+            text='Spot', hover_data={'MarkerSize': False, 'X': False, 'Y': False, 'Makes': True, 'Attempts': True, 'Percentage': ':.1f'},
+            color_continuous_scale='RdYlGn', range_color=[0, 100]
+        )
+        
+        fig_heatmap.update_traces(textposition='top center', textfont=dict(color=NAVY, size=14, family="Arial Black"))
+        
+        fig_heatmap.update_layout(
+            xaxis=dict(range=[-25, 25], visible=False),
+            yaxis=dict(range=[0, 22], visible=False),
+            plot_bgcolor=BACKGROUND, coloraxis_showscale=True,
+            margin=dict(l=0, r=0, t=10, b=10)
+        )
+        
+        # Draw the virtual court lines
+        fig_heatmap.add_shape(type="rect", x0=-8, y0=0, x1=8, y1=15, line=dict(color=NAVY, width=2), fillcolor="rgba(11, 34, 64, 0.05)") # Paint
+        fig_heatmap.add_shape(type="circle", x0=-6, y0=9, x1=6, y1=21, line=dict(color=NAVY, width=2)) # Top of Key
+        fig_heatmap.add_shape(type="circle", x0=-1, y0=3.5, x1=1, y1=5.5, line=dict(color=GOLD, width=3)) # Hoop
+        fig_heatmap.add_shape(type="rect", x0=-3, y0=3.5, x1=3, y1=3.5, line=dict(color=NAVY, width=4)) # Backboard
+        
+        st.plotly_chart(fig_heatmap, use_container_width=True)
 
-    st.markdown(f"<h3 style='color: {NAVY}; text-align: center;'>Daily Shooting Trend</h3>", unsafe_allow_html=True)
+    # --- FEATURE 3: TREND WITH 7-DAY MOVING AVERAGE ---
+    st.markdown(f"<h3 style='color: {NAVY}; text-align: center;'>Daily Shooting Trend & Averages</h3>", unsafe_allow_html=True)
     df['Court_Pct'] = (df['Court_Makes'] / 20) * 100
     df['FT_Pct'] = (df['FT_Makes'] / 10) * 100
-    df_chart = df[['Date', 'Court_Pct', 'FT_Pct']].copy()
-    df_chart.rename(columns={'Court_Pct': 'Court Shots', 'FT_Pct': 'Free Throws'}, inplace=True)
     
-    fig_line = px.line(df_chart, x='Date', y=['Court Shots', 'Free Throws'], markers=True, labels={'value': 'Shooting %', 'Date': 'Date', 'variable': 'Shot Type'}, color_discrete_map={'Court Shots': NAVY, 'Free Throws': GOLD})
+    df_chart = df[['Date', 'Court_Pct', 'FT_Pct']].copy()
+    df_chart.rename(columns={'Court_Pct': 'Daily Court Shots', 'FT_Pct': 'Free Throws'}, inplace=True)
+    
+    # Calculate the Moving Average
+    df_chart['7-Day Avg (Court)'] = df_chart['Daily Court Shots'].rolling(window=7, min_periods=1).mean()
+    
+    fig_line = px.line(
+        df_chart, x='Date', y=['Daily Court Shots', '7-Day Avg (Court)', 'Free Throws'], 
+        markers=True, 
+        labels={'value': 'Shooting %', 'Date': 'Workout Date', 'variable': 'Metric'},
+        color_discrete_map={
+            'Daily Court Shots': 'rgba(11, 34, 64, 0.3)', # Made slightly faded so the average pops
+            '7-Day Avg (Court)': NAVY, 
+            'Free Throws': GOLD
+        }
+    )
+    
+    # Force X-axis to sort chronologically and visually clearly
+    fig_line.update_xaxes(type='category', categoryorder='category ascending')
     fig_line.update_layout(yaxis_range=[0, 100], plot_bgcolor=BACKGROUND, legend_title_text='')
     st.plotly_chart(fig_line, use_container_width=True)
